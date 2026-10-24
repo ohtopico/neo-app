@@ -1,0 +1,4 @@
+# Arquivos gerados na compilação (Maven / NetBeans)
+target/
+nbactions.xml
+nb-configuration.xml

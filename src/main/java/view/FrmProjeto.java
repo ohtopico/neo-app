@@ -1,51 +1,71 @@
-/*
- * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
- * Click nbfs://nbhost/SystemFileSystem/Templates/GUIForms/JFrame.java to edit this template
- */
 package view;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import model.APOD;
-import dal.DAO;
+import com.fasterxml.jackson.databind.JsonNode;
+import dal.AsteroideDAO;
+import dal.ClienteNeoWs;
+import dal.LeitorDoFeed;
+import java.io.IOException;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.util.Date;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.swing.JOptionPane;
+import javax.swing.Timer;
 import javax.swing.table.DefaultTableModel;
-import model.Objeto;
+import model.Asteroide;
+import model.ContagemPorData;
+import model.Ordenacao;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
 import org.jfree.chart.plot.PlotOrientation;
 import org.jfree.data.category.DefaultCategoryDataset;
 
-
 /**
- *
- * @author Jal
+ * Tela principal: painel com o gráfico de asteroides por data, os mais próximos e a tabela de resultados.
  */
 public class FrmProjeto extends javax.swing.JFrame {
 
-    /**
-     *
-     * @throws ClassNotFoundException
-     * @throws SQLException
-     */
+    private static final Logger LOG = Logger.getLogger(FrmProjeto.class.getName());
+    private static final int DIAS_POR_PESQUISA = 7;  // limite da API
+    private static final int LINHAS_NO_PAINEL = 6;
+    private static final int INTERVALO_DO_RELOGIO_MS = 1000;
 
-    APOD apod = dal.API.chamar("2024-07-01", "2024-07-07");
-    ArrayList<Objeto> lst = dal.LeitorJSON.Leitor(apod);
-    Timer timer = new Timer();
+    private final ClienteNeoWs api = new ClienteNeoWs();
+    private final AsteroideDAO asteroides = new AsteroideDAO();
+    private final Timer relogio = new Timer(INTERVALO_DO_RELOGIO_MS, evento -> atualizarDataEHora());
 
-    public FrmProjeto() throws ClassNotFoundException, SQLException{
+    public FrmProjeto() {
         initComponents();
-        atualizaHora();
-        contObjProx.setText(apod.element_count);
-        carregaGrafico();
-        carregaTabelaProxAprox();
-        Timer();
+        LocalDate hoje = LocalDate.now();
+        dataInicio.setText(hoje.toString());
+        dataFim.setText(hoje.plusDays(DIAS_POR_PESQUISA - 1).toString());
+        atualizarDataEHora();
+        relogio.start();
+        javax.swing.SwingUtilities.invokeLater(this::pesquisar);  // depois que a janela já estiver aberta
+    }
+
+    /**
+     * Busca os asteroides do período digitado, troca os dados do banco pelos novos e atualiza a tela.
+     * Se a API ou o banco falharem, avisa e mostra o que já estava salvo.
+     */
+    private void pesquisar() {
+        try {
+            JsonNode feed = api.buscarFeed(dataInicio.getText(), dataFim.getText());
+            asteroides.apagarTodos();
+            asteroides.inserir(LeitorDoFeed.lerAsteroides(feed));
+            mostrarQuantidadeEncontrada(feed);
+        } catch (IOException | SQLException ex) {
+            LOG.log(Level.SEVERE, "Não foi possível atualizar os dados", ex);
+            JOptionPane.showMessageDialog(this, "Não foi possível buscar os dados novos. Mostrando os dados já salvos.",
+                    "Erro na pesquisa", JOptionPane.WARNING_MESSAGE);
+        }
+        carregarGrafico();
+        carregarTabelaDosMaisProximos();
+        carregarTabelaDeResultados();
     }
 
     /**
@@ -65,7 +85,7 @@ public class FrmProjeto extends javax.swing.JFrame {
         jLabel6 = new javax.swing.JLabel();
         dataInicio = new javax.swing.JTextField();
         dataFim = new javax.swing.JTextField();
-        jButton1 = new javax.swing.JButton();
+        botaoPesquisar = new javax.swing.JButton();
         abaResultados = new javax.swing.JFrame();
         jScrollPane2 = new javax.swing.JScrollPane();
         tabelaResultados = new javax.swing.JTable();
@@ -80,7 +100,7 @@ public class FrmProjeto extends javax.swing.JFrame {
         jPanel3 = new javax.swing.JPanel();
         jScrollPane3 = new javax.swing.JScrollPane();
         tabelaProxAprox = new javax.swing.JTable();
-        jPanel4 = new javax.swing.JPanel();
+        painelGrafico = new javax.swing.JPanel();
         menu = new javax.swing.JMenuBar();
         menuArq = new javax.swing.JMenu();
         menuItemDashboard = new javax.swing.JMenuItem();
@@ -132,10 +152,10 @@ public class FrmProjeto extends javax.swing.JFrame {
 
         dataFim.setText("AAAA-MM-DD");
 
-        jButton1.setText("Pesquisar");
-        jButton1.addMouseListener(new java.awt.event.MouseAdapter() {
+        botaoPesquisar.setText("Pesquisar");
+        botaoPesquisar.addMouseListener(new java.awt.event.MouseAdapter() {
             public void mouseClicked(java.awt.event.MouseEvent evt) {
-                jButton1MouseClicked(evt);
+                botaoPesquisarMouseClicked(evt);
             }
         });
 
@@ -156,7 +176,7 @@ public class FrmProjeto extends javax.swing.JFrame {
                             .addComponent(dataInicio, javax.swing.GroupLayout.DEFAULT_SIZE, 100, Short.MAX_VALUE)))
                     .addGroup(mensagemPreferenciasLayout.createSequentialGroup()
                         .addGap(75, 75, 75)
-                        .addComponent(jButton1)))
+                        .addComponent(botaoPesquisar)))
                 .addContainerGap(43, Short.MAX_VALUE))
         );
         mensagemPreferenciasLayout.setVerticalGroup(
@@ -171,7 +191,7 @@ public class FrmProjeto extends javax.swing.JFrame {
                     .addComponent(jLabel6)
                     .addComponent(dataFim, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
                 .addGap(18, 18, 18)
-                .addComponent(jButton1)
+                .addComponent(botaoPesquisar)
                 .addContainerGap(7, Short.MAX_VALUE))
         );
 
@@ -347,13 +367,13 @@ public class FrmProjeto extends javax.swing.JFrame {
                 .addContainerGap())
         );
 
-        jPanel4.setBorder(javax.swing.BorderFactory.createTitledBorder(javax.swing.BorderFactory.createTitledBorder(""), "Gráfico"));
-        jPanel4.addContainerListener(new java.awt.event.ContainerAdapter() {
+        painelGrafico.setBorder(javax.swing.BorderFactory.createTitledBorder(javax.swing.BorderFactory.createTitledBorder(""), "Gráfico"));
+        painelGrafico.addContainerListener(new java.awt.event.ContainerAdapter() {
             public void componentAdded(java.awt.event.ContainerEvent evt) {
-                jPanel4ComponentAdded(evt);
+                painelGraficoComponentAdded(evt);
             }
         });
-        jPanel4.setLayout(new javax.swing.BoxLayout(jPanel4, javax.swing.BoxLayout.LINE_AXIS));
+        painelGrafico.setLayout(new javax.swing.BoxLayout(painelGrafico, javax.swing.BoxLayout.LINE_AXIS));
 
         menu.addFocusListener(new java.awt.event.FocusAdapter() {
             public void focusGained(java.awt.event.FocusEvent evt) {
@@ -459,7 +479,7 @@ public class FrmProjeto extends javax.swing.JFrame {
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                     .addComponent(jPanel2, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                    .addComponent(jPanel4, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                    .addComponent(painelGrafico, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
                 .addContainerGap())
         );
         layout.setVerticalGroup(
@@ -471,7 +491,7 @@ public class FrmProjeto extends javax.swing.JFrame {
                     .addComponent(jPanel1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
                 .addGap(18, 18, 18)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addComponent(jPanel4, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                    .addComponent(painelGrafico, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                     .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
                         .addGap(0, 31, Short.MAX_VALUE)
                         .addComponent(jPanel3, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
@@ -495,16 +515,12 @@ public class FrmProjeto extends javax.swing.JFrame {
     }//GEN-LAST:event_menuItemSairActionPerformed
 
     private void menuItemAtualizarActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_menuItemAtualizarActionPerformed
-    try {       
-            carregaTabelaProxAprox();
-        } catch (ClassNotFoundException | SQLException ex) {
-            Logger.getLogger(FrmProjeto.class.getName()).log(Level.SEVERE, null, ex);
-        }
+        carregarTabelaDosMaisProximos();
     }//GEN-LAST:event_menuItemAtualizarActionPerformed
 
     private void menuItemResultActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_menuItemResultActionPerformed
         abaResultados.setVisible(true);
-        carregaTabelaResultados();
+        carregarTabelaDeResultados();
     }//GEN-LAST:event_menuItemResultActionPerformed
 
     private void menuItemSairMouseClicked(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_menuItemSairMouseClicked
@@ -528,109 +544,76 @@ public class FrmProjeto extends javax.swing.JFrame {
     }//GEN-LAST:event_menuItemPreferenciasActionPerformed
 
     private void comboOrdenacaoActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_comboOrdenacaoActionPerformed
-        carregaTabelaResultados();
+        carregarTabelaDeResultados();
     }//GEN-LAST:event_comboOrdenacaoActionPerformed
 
     private void menuMouseEntered(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_menuMouseEntered
      
     }//GEN-LAST:event_menuMouseEntered
 
-    private void jButton1MouseClicked(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_jButton1MouseClicked
+    private void botaoPesquisarMouseClicked(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_botaoPesquisarMouseClicked
+        pesquisar();
+    }//GEN-LAST:event_botaoPesquisarMouseClicked
 
-        apod = dal.API.chamar(dataInicio.getText(), dataFim.getText());
-        contObjProx.setText(apod.element_count);
+    private void painelGraficoComponentAdded(java.awt.event.ContainerEvent evt) {//GEN-FIRST:event_painelGraficoComponentAdded
         
-        try {
-            carregaTabelaProxAprox();
-            carregaTabelaResultados();
-        } catch (ClassNotFoundException | SQLException ex) {
-            Logger.getLogger(FrmProjeto.class.getName()).log(Level.SEVERE, null, ex);
-        }
-    }//GEN-LAST:event_jButton1MouseClicked
+    }//GEN-LAST:event_painelGraficoComponentAdded
 
-    private void jPanel4ComponentAdded(java.awt.event.ContainerEvent evt) {//GEN-FIRST:event_jPanel4ComponentAdded
-        
-    }//GEN-LAST:event_jPanel4ComponentAdded
-
-    private void atualizaHora(){
-        Date dataHoraAtual = new Date();
-        String data = new SimpleDateFormat("dd/MM/yyyy").format(dataHoraAtual);
-        String hora = new SimpleDateFormat("HH:mm:ss").format(dataHoraAtual);
-        labelData.setText(data);
-        labelHora.setText(hora);
+    private void mostrarQuantidadeEncontrada(JsonNode feed) {
+        contObjProx.setText(String.valueOf(LeitorDoFeed.quantidadeInformada(feed)));
     }
-    
-    private void carregaTabelaProxAprox() throws ClassNotFoundException, SQLException {
-        DefaultTableModel model = (DefaultTableModel) tabelaProxAprox.getModel();
-        model.setRowCount(0);//limpar as linhas antigas da jTable
-        
-        String busca = (String) comboOrdenacao.getSelectedItem();
-        ArrayList<Objeto> listaObj = DAO.consultar(busca);
-         
-        for (int i = 0; i < 6; i++){
-            Object[] obj = new Object[4];//vetor para as 4 colunas
-            obj[0] = listaObj.get(i).getNome();
-            obj[1] = listaObj.get(i).getDataAprox();
-            obj[2] = listaObj.get(i).getDistancia();
-            obj[3] = listaObj.get(i).getRisco();
-            model.addRow(obj);
+
+    private void atualizarDataEHora() {
+        Date agora = new Date();
+        labelData.setText(new SimpleDateFormat("dd/MM/yyyy").format(agora));
+        labelHora.setText(new SimpleDateFormat("HH:mm:ss").format(agora));
+    }
+
+    private List<Asteroide> asteroidesNaOrdemEscolhida() {
+        Ordenacao ordenacao = Ordenacao.doNomeNaTela((String) comboOrdenacao.getSelectedItem());
+        try {
+            return asteroides.listar(ordenacao);
+        } catch (SQLException ex) {
+            LOG.log(Level.SEVERE, "Não foi possível consultar o banco de dados", ex);
+            return List.of();
         }
     }
-    
-    private void carregaTabelaResultados(){
-        DefaultTableModel model = (DefaultTableModel) tabelaResultados.getModel();
-        model.setRowCount(0);//limpar as linhas antigas da jTable
-        
-        
-        String busca = (String) comboOrdenacao.getSelectedItem();
+
+    private void carregarTabelaDosMaisProximos() {
+        DefaultTableModel tabela = (DefaultTableModel) tabelaProxAprox.getModel();
+        tabela.setRowCount(0);
+        List<Asteroide> lista = asteroidesNaOrdemEscolhida();
+        for (Asteroide asteroide : lista.subList(0, Math.min(LINHAS_NO_PAINEL, lista.size()))) {
+            tabela.addRow(new Object[]{asteroide.nome(), asteroide.dataDeAproximacao(), asteroide.distanciaKm(),
+                asteroide.potencialmentePerigoso()});
+        }
+    }
+
+    private void carregarTabelaDeResultados() {
+        DefaultTableModel tabela = (DefaultTableModel) tabelaResultados.getModel();
+        tabela.setRowCount(0);
+        for (Asteroide asteroide : asteroidesNaOrdemEscolhida()) {
+            tabela.addRow(new Object[]{asteroide.nome(), asteroide.distanciaKm(), asteroide.velocidadeKmH(),
+                asteroide.diametroMinimoKm(), asteroide.potencialmentePerigoso(), asteroide.dataDeAproximacao()});
+        }
+    }
+
+    private void carregarGrafico() {
+        DefaultCategoryDataset barras = new DefaultCategoryDataset();
         try {
-            ArrayList<Objeto> listaObj = DAO.consultar(busca);
-            for (int i = 0; i < listaObj.size(); i++) {
-                Object[] obj = new Object[6];//vetor para as 4 colunas
-                obj[0] = listaObj.get(i).getNome();
-                obj[1] = listaObj.get(i).getDistancia();
-                obj[2] = listaObj.get(i).getVelocidade();
-                obj[3] = listaObj.get(i).getTamanho();
-                obj[4] = listaObj.get(i).getRisco();
-                obj[5] = listaObj.get(i).getDataAprox();
-                model.addRow(obj);
+            for (ContagemPorData contagem : asteroides.contarPorData()) {
+                barras.setValue(contagem.quantidade(), contagem.data(), "");
             }
         } catch (SQLException ex) {
-            Logger.getLogger(FrmProjeto.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (ClassNotFoundException ex) {
-            Logger.getLogger(FrmProjeto.class.getName()).log(Level.SEVERE, null, ex);
+            LOG.log(Level.SEVERE, "Não foi possível montar o gráfico", ex);
+            return;
         }
+        JFreeChart grafico = ChartFactory.createBarChart3D("", "Data", "Objetos encontrados", barras,
+                PlotOrientation.VERTICAL, true, true, false);
+        painelGrafico.removeAll();  // tira o gráfico da pesquisa anterior
+        painelGrafico.add(new ChartPanel(grafico));
+        painelGrafico.revalidate();
     }
-        
-    private void carregaGrafico(){
-        DefaultCategoryDataset barra = new DefaultCategoryDataset();
-        try {
-            ArrayList <Objeto> busca = DAO.consultarGrafico();
-            for (int i=0; i < busca.size(); i++){
-                barra.setValue( busca.get(i).setQnt(), busca.get(i).getDataAprox(), "");
-            }
-
-            JFreeChart grafico = ChartFactory.createBarChart3D("", "Data", "Objetos encontrados", barra, PlotOrientation.VERTICAL, true, true, false);
-            ChartPanel painel = new ChartPanel(grafico);
-            jPanel4.add(painel);
-        } catch (SQLException ex) {
-            System.out.println("deu erro na busca");
-            Logger.getLogger(FrmProjeto.class.getName()).log(Level.SEVERE, null, ex);
-        }
-       
-    }
-    
-    public void Timer(){
-        int delay = 0;
-        int interval = 200;
-        timer.scheduleAtFixedRate(new TimerTask(){
-            public void run() {
-               atualizaHora();
-            }
-        }, delay, interval);
-    }
-    
-    
 
     /**
      * @param args the command line arguments
@@ -662,11 +645,7 @@ public class FrmProjeto extends javax.swing.JFrame {
         /* Create and display the form */
         java.awt.EventQueue.invokeLater(new Runnable() {
             public void run() {
-                try {
-                    new FrmProjeto().setVisible(true);
-                } catch (ClassNotFoundException | SQLException ex) {
-                    Logger.getLogger(FrmProjeto.class.getName()).log(Level.SEVERE, null, ex);
-                }
+                new FrmProjeto().setVisible(true);
             }
         });
         
@@ -679,7 +658,7 @@ public class FrmProjeto extends javax.swing.JFrame {
     private javax.swing.JLabel contObjProx;
     private javax.swing.JTextField dataFim;
     private javax.swing.JTextField dataInicio;
-    private javax.swing.JButton jButton1;
+    private javax.swing.JButton botaoPesquisar;
     private javax.swing.JLabel jLabel1;
     private javax.swing.JLabel jLabel2;
     private javax.swing.JLabel jLabel3;
@@ -689,7 +668,7 @@ public class FrmProjeto extends javax.swing.JFrame {
     private javax.swing.JPanel jPanel1;
     private javax.swing.JPanel jPanel2;
     private javax.swing.JPanel jPanel3;
-    private javax.swing.JPanel jPanel4;
+    private javax.swing.JPanel painelGrafico;
     private javax.swing.JScrollPane jScrollPane2;
     private javax.swing.JScrollPane jScrollPane3;
     private javax.swing.JLabel labelData;
