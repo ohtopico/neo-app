@@ -7,12 +7,13 @@ import dal.LeitorDoFeed;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
 import java.util.Date;
 import java.util.List;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.swing.JOptionPane;
+import javax.swing.Timer;
 import javax.swing.table.DefaultTableModel;
 import model.Asteroide;
 import model.ContagemPorData;
@@ -29,24 +30,42 @@ import org.jfree.data.category.DefaultCategoryDataset;
 public class FrmProjeto extends javax.swing.JFrame {
 
     private static final Logger LOG = Logger.getLogger(FrmProjeto.class.getName());
-    private static final String DATA_INICIAL = "2024-07-01";
-    private static final String DATA_FINAL = "2024-07-07";
+    private static final int DIAS_POR_PESQUISA = 7;  // limite da API
     private static final int LINHAS_NO_PAINEL = 6;
-    private static final long INTERVALO_DO_RELOGIO_MS = 200;
+    private static final int INTERVALO_DO_RELOGIO_MS = 1000;
 
     private final ClienteNeoWs api = new ClienteNeoWs();
     private final AsteroideDAO asteroides = new AsteroideDAO();
-    private final Timer relogio = new Timer();
+    private final Timer relogio = new Timer(INTERVALO_DO_RELOGIO_MS, evento -> atualizarDataEHora());
 
-    public FrmProjeto() throws IOException, SQLException {
+    public FrmProjeto() {
         initComponents();
-        JsonNode feed = api.buscarFeed(DATA_INICIAL, DATA_FINAL);
-        asteroides.inserir(LeitorDoFeed.lerAsteroides(feed));
-        mostrarQuantidadeEncontrada(feed);
+        LocalDate hoje = LocalDate.now();
+        dataInicio.setText(hoje.toString());
+        dataFim.setText(hoje.plusDays(DIAS_POR_PESQUISA - 1).toString());
         atualizarDataEHora();
+        relogio.start();
+        javax.swing.SwingUtilities.invokeLater(this::pesquisar);  // depois que a janela já estiver aberta
+    }
+
+    /**
+     * Busca os asteroides do período digitado, troca os dados do banco pelos novos e atualiza a tela.
+     * Se a API ou o banco falharem, avisa e mostra o que já estava salvo.
+     */
+    private void pesquisar() {
+        try {
+            JsonNode feed = api.buscarFeed(dataInicio.getText(), dataFim.getText());
+            asteroides.apagarTodos();
+            asteroides.inserir(LeitorDoFeed.lerAsteroides(feed));
+            mostrarQuantidadeEncontrada(feed);
+        } catch (IOException | SQLException ex) {
+            LOG.log(Level.SEVERE, "Não foi possível atualizar os dados", ex);
+            JOptionPane.showMessageDialog(this, "Não foi possível buscar os dados novos. Mostrando os dados já salvos.",
+                    "Erro na pesquisa", JOptionPane.WARNING_MESSAGE);
+        }
         carregarGrafico();
         carregarTabelaDosMaisProximos();
-        iniciarRelogio();
+        carregarTabelaDeResultados();
     }
 
     /**
@@ -533,13 +552,7 @@ public class FrmProjeto extends javax.swing.JFrame {
     }//GEN-LAST:event_menuMouseEntered
 
     private void botaoPesquisarMouseClicked(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_botaoPesquisarMouseClicked
-        try {
-            mostrarQuantidadeEncontrada(api.buscarFeed(dataInicio.getText(), dataFim.getText()));
-        } catch (IOException ex) {
-            LOG.log(Level.SEVERE, "Não foi possível consultar a API da NASA", ex);
-        }
-        carregarTabelaDosMaisProximos();
-        carregarTabelaDeResultados();
+        pesquisar();
     }//GEN-LAST:event_botaoPesquisarMouseClicked
 
     private void painelGraficoComponentAdded(java.awt.event.ContainerEvent evt) {//GEN-FIRST:event_painelGraficoComponentAdded
@@ -556,15 +569,6 @@ public class FrmProjeto extends javax.swing.JFrame {
         labelHora.setText(new SimpleDateFormat("HH:mm:ss").format(agora));
     }
 
-    private void iniciarRelogio() {
-        relogio.scheduleAtFixedRate(new TimerTask() {
-            @Override
-            public void run() {
-                atualizarDataEHora();
-            }
-        }, 0, INTERVALO_DO_RELOGIO_MS);
-    }
-
     private List<Asteroide> asteroidesNaOrdemEscolhida() {
         Ordenacao ordenacao = Ordenacao.doNomeNaTela((String) comboOrdenacao.getSelectedItem());
         try {
@@ -579,8 +583,7 @@ public class FrmProjeto extends javax.swing.JFrame {
         DefaultTableModel tabela = (DefaultTableModel) tabelaProxAprox.getModel();
         tabela.setRowCount(0);
         List<Asteroide> lista = asteroidesNaOrdemEscolhida();
-        for (int i = 0; i < LINHAS_NO_PAINEL; i++) {
-            Asteroide asteroide = lista.get(i);
+        for (Asteroide asteroide : lista.subList(0, Math.min(LINHAS_NO_PAINEL, lista.size()))) {
             tabela.addRow(new Object[]{asteroide.nome(), asteroide.dataDeAproximacao(), asteroide.distanciaKm(),
                 asteroide.potencialmentePerigoso()});
         }
@@ -607,7 +610,9 @@ public class FrmProjeto extends javax.swing.JFrame {
         }
         JFreeChart grafico = ChartFactory.createBarChart3D("", "Data", "Objetos encontrados", barras,
                 PlotOrientation.VERTICAL, true, true, false);
+        painelGrafico.removeAll();  // tira o gráfico da pesquisa anterior
         painelGrafico.add(new ChartPanel(grafico));
+        painelGrafico.revalidate();
     }
 
     /**
@@ -640,11 +645,7 @@ public class FrmProjeto extends javax.swing.JFrame {
         /* Create and display the form */
         java.awt.EventQueue.invokeLater(new Runnable() {
             public void run() {
-                try {
-                    new FrmProjeto().setVisible(true);
-                } catch (IOException | SQLException ex) {
-                    LOG.log(Level.SEVERE, "Não foi possível abrir o programa", ex);
-                }
+                new FrmProjeto().setVisible(true);
             }
         });
         
